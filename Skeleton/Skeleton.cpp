@@ -1,6 +1,4 @@
 //=============================================================================================
-// Mintaprogram: Zöld háromszög. Ervenyes 2019. osztol.
-//
 // A beadott program csak ebben a fajlban lehet, a fajl 1 byte-os ASCII karaktereket tartalmazhat, BOM kihuzando.
 // Tilos:
 // - mast "beincludolni", illetve mas konyvtarat hasznalni
@@ -43,7 +41,62 @@
 //=============================================================================================
 #include "framework.h"
 
-const int tessellationLevel = 20;
+const int tessellationLevel = 30;
+const int numberOfTracs = 12;
+float radiusOfVirus = 2.0f;
+const float eps = 0.001f;
+
+//---------------------------
+struct Clifford {
+	//---------------------------
+	float f, d;
+	Clifford(float f0 = 0, float d0 = 0) { f = f0, d = d0; }
+	Clifford operator+(Clifford r) { return Clifford(f + r.f, d + r.d); }
+	Clifford operator-(Clifford r) { return Clifford(f - r.f, d - r.d); }
+	Clifford operator*(Clifford r) { return Clifford(f * r.f, f * r.d + d * r.f); }
+	Clifford operator/(Clifford r) {
+		float l = r.f * r.f;
+		return (*this) * Clifford(r.f / l, -r.d / l);
+	}
+};
+
+Clifford T(float t) { return Clifford(t, 1); }
+Clifford Sin(Clifford g) { return Clifford(sin(g.f), cos(g.f) * g.d); }
+Clifford Cos(Clifford g) { return Clifford(cos(g.f), -sin(g.f) * g.d); }
+Clifford Tan(Clifford g) { return Sin(g) / Cos(g); }
+Clifford Log(Clifford g) { return Clifford(logf(g.f), 1 / g.f * g.d); }
+Clifford Exp(Clifford g) { return Clifford(expf(g.f), expf(g.f) * g.d); }
+Clifford Pow(Clifford g, float n) { return Clifford(powf(g.f, n), n * powf(g.f, n - 1) * g.d); }
+Clifford Sinh(Clifford g) { return Clifford(sinhf(g.f), coshf(g.f) * g.d); }
+Clifford Cosh(Clifford g) { return Clifford(coshf(g.f), sinf(g.f) * g.d); }
+Clifford Tanh(Clifford g) { return Sinh(g) / Cosh(g); }
+
+template<class T> struct Dnum {
+	float f;
+	T d;
+	Dnum(float f0 = 0, T d0 = T(0)) { f = f0, d = d0; }
+	Dnum operator+(Dnum r) { return Dnum(f + r.f, d + r.d); }
+	Dnum operator-(Dnum r) { return Dnum(f - r.f, d - r.d); }
+	Dnum operator*(Dnum r) {
+		return Dnum(f * r.f, f * r.d + d * r.f);
+	}
+	Dnum operator/(Dnum r) {
+		return Dnum(f / r.f, (r.f * d - r.d * f) / r.f / r.f);
+	}
+};
+
+template<class T> Dnum<T> Exp(Dnum<T> g) { return Dnum<T>(expf(g.f), expf(g.f) * g.d); }
+template<class T> Dnum<T> Sin(Dnum<T> g) { return Dnum<T>(sinf(g.f), cosf(g.f) * g.d); }
+template<class T> Dnum<T> Cos(Dnum<T> g) { return Dnum<T>(cosf(g.f), -sinf(g.f) * g.d); }
+template<class T> Dnum<T> Tan(Dnum<T> g) { return Sin(g) / Cos(g); }
+template<class T> Dnum<T> Sinh(Dnum<T> g) { return Dnum<T>(sinhf(g.f), coshf(g.f) * g.d); }
+template<class T> Dnum<T> Cosh(Dnum<T> g) { return Dnum<T>(coshf(g.f), sinhf(g.f) * g.d); }
+template<class T> Dnum<T> Tanh(Dnum<T> g) { return Sinh(g) / Cosh(g); }
+template<class T> Dnum<T> Log(Dnum<T> g) { return Dnum<T>(logf(g.f), g.d / g.f); }
+template<class T> Dnum<T> Pow(Dnum<T> g) {
+	return Dnum<T>(powf(g.f, n), n * powf(g.f, n - 1) * g.d);
+}
+typedef Dnum<vec2> Dnum2;
 
 //---------------------------
 struct Camera { // 3D camera
@@ -53,17 +106,17 @@ struct Camera { // 3D camera
 public:
 	Camera() {
 		asp = (float)windowWidth / windowHeight;
-		fov = 75.0f * (float)M_PI / 180.0f;
-		fp = 1; bp = 10;
+		fov = 75.0f * (float) M_PI / 180.0f;
+		fp = 1; bp = 30;
 	}
 	mat4 V() { // view matrix: translates the center to the origin
 		vec3 w = normalize(wEye - wLookat);
 		vec3 u = normalize(cross(wVup, w));
 		vec3 v = cross(w, u);
 		return TranslateMatrix(wEye * (-1)) * mat4(u.x, v.x, w.x, 0,
-			u.y, v.y, w.y, 0,
-			u.z, v.z, w.z, 0,
-			0, 0, 0, 1);
+													u.y, v.y, w.y, 0,
+													u.z, v.z, w.z, 0,
+													0, 0, 0, 1);
 	}
 
 	mat4 P() { // projection matrix
@@ -106,14 +159,73 @@ public:
 	}
 };
 
+class PurpleTexture : public Texture {
+	//---------------------------
+public:
+	PurpleTexture(const int width = 0, const int height = 0) : Texture() {
+		std::vector<vec4> image(width * height);
+		//
+		const vec4 purple(0.7f, 0.3f, 0.9f, 1), blue(0, 0, 1, 1);
+		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
+			image[y * width + x] = (x & 1) ^ (y & 1) ? purple :purple;
+		}
+		create(width, height, image, GL_NEAREST);
+	}
+};
+
+class BlueTexture : public Texture {
+public:
+	BlueTexture(const int width = 0, const int height = 0) : Texture() {
+		std::vector<vec4> image(width * height);
+		const vec4 light_blue(0, 1, 1, 1), blue(0, 0, 1, 1);
+		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
+			image[y * width + x] = (x & 1) ^ (y & 1) ? light_blue : blue;
+		}
+		create(width, height, image, GL_NEAREST);
+	}
+};
+class RedTexture : public Texture {
+public:
+	RedTexture(const int width = 0, const int height = 0) : Texture() {
+		std::vector<vec4> image(width * height);
+		const vec4 light_red(0.2f, 0, 0, 1), red(1, 0, 0, 1);
+		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
+			image[y * width + x] = (x%2==0) ? light_red : red;
+		}
+		create(width, height, image, GL_NEAREST);
+	}
+};
+class YellowTexture : public Texture {
+public:
+	YellowTexture(const int width = 0, const int height = 0) : Texture() {
+		std::vector<vec4> image(width * height);
+		const vec4 yellow(1, 1, 0, 1), green(0.5f, 1, 0, 1);
+		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
+			image[y * width + x] = (x & 1) ^ (y & 1) ? yellow : green;
+		}
+		create(width, height, image, GL_NEAREST);
+	}
+};
+class GreyTexture : public Texture {
+public:
+	GreyTexture(const int width = 0, const int height = 0) : Texture() {
+		std::vector<vec4> image(width * height);
+		const vec4 grey1(0.7f, 0.7f, 0.7f, 1), grey2(0.2f, 0.2f, 0.2f, 1);
+		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
+			image[y * width + x] = (x%2 ==0) ? grey1 : grey2;
+		}
+		create(width, height, image, GL_NEAREST);
+	}
+};
+
 //---------------------------
 struct RenderState {
 	//---------------------------
-	mat4	           MVP, M, Minv, V, P;
-	Material* material;
-	std::vector<Light> lights;
-	Texture* texture;
-	vec3	           wEye;
+	mat4				 MVP, M, Minv, V, P;
+	Material*			 material;
+	std::vector<Light>	lights;
+	Texture*			texture;
+	vec3				wEye;
 };
 
 //---------------------------
@@ -133,82 +245,6 @@ public:
 		setUniform(light.La, name + ".La");
 		setUniform(light.Le, name + ".Le");
 		setUniform(light.wLightPos, name + ".wLightPos");
-	}
-};
-
-//---------------------------
-class GouraudShader : public Shader {
-	//---------------------------
-	const char* vertexSource = R"(
-		#version 330
-		precision highp float;
-
-		struct Light {
-			vec3 La, Le;
-			vec4 wLightPos;
-		};
-		
-		struct Material {
-			vec3 kd, ks, ka;
-			float shininess;
-		};
-
-		uniform mat4  MVP, M, Minv;  // MVP, Model, Model-inverse
-		uniform Light[8] lights;     // light source direction 
-		uniform int   nLights;		 // number of light sources
-		uniform vec3  wEye;          // pos of eye
-		uniform Material  material;  // diffuse, specular, ambient ref
-
-		layout(location = 0) in vec3  vtxPos;            // pos in modeling space
-		layout(location = 1) in vec3  vtxNorm;      	 // normal in modeling space
-
-		out vec3 radiance;		    // reflected radiance
-
-		void main() {
-			gl_Position = vec4(vtxPos, 1) * MVP; // to NDC
-			// radiance computation
-			vec4 wPos = vec4(vtxPos, 1) * M;	
-			vec3 V = normalize(wEye * wPos.w - wPos.xyz);
-			vec3 N = normalize((Minv * vec4(vtxNorm, 0)).xyz);
-			if (dot(N, V) < 0) N = -N;	// prepare for one-sided surfaces like Mobius or Klein
-
-			radiance = vec3(0, 0, 0);
-			for(int i = 0; i < nLights; i++) {
-				vec3 L = normalize(lights[i].wLightPos.xyz * wPos.w - wPos.xyz * lights[i].wLightPos.w);
-				vec3 H = normalize(L + V);
-				float cost = max(dot(N,L), 0), cosd = max(dot(N,H), 0);
-				radiance += material.ka * lights[i].La + (material.kd * cost + material.ks * pow(cosd, material.shininess)) * lights[i].Le;
-			}
-		}
-	)";
-
-	// fragment shader in GLSL
-	const char* fragmentSource = R"(
-		#version 330
-		precision highp float;
-
-		in  vec3 radiance;      // interpolated radiance
-		out vec4 fragmentColor; // output goes to frame buffer
-
-		void main() {
-			fragmentColor = vec4(radiance, 1);
-		}
-	)";
-public:
-	GouraudShader() { create(vertexSource, fragmentSource, "fragmentColor"); }
-
-	void Bind(RenderState state) {
-		Use(); 		// make this program run
-		setUniform(state.MVP, "MVP");
-		setUniform(state.M, "M");
-		setUniform(state.Minv, "Minv");
-		setUniform(state.wEye, "wEye");
-		setUniformMaterial(*state.material, "material");
-
-		setUniform((int)state.lights.size(), "nLights");
-		for (unsigned int i = 0; i < state.lights.size(); i++) {
-			setUniformLight(state.lights[i], std::string("lights[") + std::to_string(i) + std::string("]"));
-		}
 	}
 };
 
@@ -318,66 +354,6 @@ public:
 };
 
 //---------------------------
-class NPRShader : public Shader {
-	//---------------------------
-	const char* vertexSource = R"(
-		#version 330
-		precision highp float;
-
-		uniform mat4  MVP, M, Minv; // MVP, Model, Model-inverse
-		uniform	vec4  wLightPos;
-		uniform vec3  wEye;         // pos of eye
-
-		layout(location = 0) in vec3  vtxPos;            // pos in modeling space
-		layout(location = 1) in vec3  vtxNorm;      	 // normal in modeling space
-		layout(location = 2) in vec2  vtxUV;
-
-		out vec3 wNormal, wView, wLight;				// in world space
-		out vec2 texcoord;
-
-		void main() {
-		   gl_Position = vec4(vtxPos, 1) * MVP; // to NDC
-		   vec4 wPos = vec4(vtxPos, 1) * M;
-		   wLight = wLightPos.xyz * wPos.w - wPos.xyz * wLightPos.w;
-		   wView  = wEye * wPos.w - wPos.xyz;
-		   wNormal = (Minv * vec4(vtxNorm, 0)).xyz;
-		   texcoord = vtxUV;
-		}
-	)";
-
-	// fragment shader in GLSL
-	const char* fragmentSource = R"(
-		#version 330
-		precision highp float;
-
-		uniform sampler2D diffuseTexture;
-
-		in  vec3 wNormal, wView, wLight;	// interpolated
-		in  vec2 texcoord;
-		out vec4 fragmentColor;    			// output goes to frame buffer
-
-		void main() {
-		   vec3 N = normalize(wNormal), V = normalize(wView), L = normalize(wLight);
-		   float y = (dot(N, L) > 0.5) ? 1 : 0.5;
-		   if (abs(dot(N, V)) < 0.2) fragmentColor = vec4(0, 0, 0, 1);
-		   else						 fragmentColor = vec4(y * texture(diffuseTexture, texcoord).rgb, 1);
-		}
-	)";
-public:
-	NPRShader() { create(vertexSource, fragmentSource, "fragmentColor"); }
-
-	void Bind(RenderState state) {
-		Use(); 		// make this program run
-		setUniform(state.MVP, "MVP");
-		setUniform(state.M, "M");
-		setUniform(state.Minv, "Minv");
-		setUniform(state.wEye, "wEye");
-		setUniform(*state.texture, std::string("diffuseTexture"));
-		setUniform(state.lights[0].wLightPos, "wLightPos");
-	}
-};
-
-//---------------------------
 struct VertexData {
 	//---------------------------
 	vec3 position, normal;
@@ -386,10 +362,12 @@ struct VertexData {
 
 //---------------------------
 class Geometry {
-	//---------------------------
+//---------------------------
 protected:
+	
 	unsigned int vao, vbo;        // vertex array object
 public:
+	
 	Geometry() {
 		glGenVertexArrays(1, &vao);
 		glBindVertexArray(vao);
@@ -410,16 +388,16 @@ class ParamSurface : public Geometry {
 public:
 	ParamSurface() { nVtxPerStrip = nStrips = 0; }
 
-	virtual VertexData GenVertexData(float u, float v) = 0;
+	virtual VertexData GenVertexData(float u, float v, float t_end) = 0;
 
-	void create(int N = tessellationLevel, int M = tessellationLevel) {
+	virtual void create(int N = tessellationLevel, int M = tessellationLevel, float t_end = 0) {
 		nVtxPerStrip = (M + 1) * 2;
 		nStrips = N;
 		std::vector<VertexData> vtxData;	// vertices on the CPU
 		for (int i = 0; i < N; i++) {
 			for (int j = 0; j <= M; j++) {
-				vtxData.push_back(GenVertexData((float)j / M, (float)i / N));
-				vtxData.push_back(GenVertexData((float)j / M, (float)(i + 1) / N));
+				vtxData.push_back(GenVertexData((float)j / M, (float)i / N, t_end));
+				vtxData.push_back(GenVertexData((float)j / M, (float)(i + 1) / N, t_end));
 			}
 		}
 		glBufferData(GL_ARRAY_BUFFER, nVtxPerStrip * nStrips * sizeof(VertexData), &vtxData[0], GL_STATIC_DRAW);
@@ -439,27 +417,9 @@ public:
 	}
 };
 
-//---------------------------
-struct Clifford {
-	//---------------------------
-	float f, d;
-	Clifford(float f0 = 0, float d0 = 0) { f = f0, d = d0; }
-	Clifford operator+(Clifford r) { return Clifford(f + r.f, d + r.d); }
-	Clifford operator-(Clifford r) { return Clifford(f - r.f, d - r.d); }
-	Clifford operator*(Clifford r) { return Clifford(f * r.f, f * r.d + d * r.f); }
-	Clifford operator/(Clifford r) {
-		float l = r.f * r.f;
-		return (*this) * Clifford(r.f / l, -r.d / l);
-	}
-};
-
-Clifford T(float t) { return Clifford(t, 1); }
-Clifford Sin(Clifford g) { return Clifford(sin(g.f), cos(g.f) * g.d); }
-Clifford Cos(Clifford g) { return Clifford(cos(g.f), -sin(g.f) * g.d); }
-Clifford Tan(Clifford g) { return Sin(g) / Cos(g); }
-Clifford Log(Clifford g) { return Clifford(logf(g.f), 1 / g.f * g.d); }
-Clifford Exp(Clifford g) { return Clifford(expf(g.f), expf(g.f) * g.d); }
-Clifford Pow(Clifford g, float n) { return Clifford(powf(g.f, n), n * powf(g.f, n - 1) * g.d); }
+Clifford radiusFunc(Clifford U, Clifford V, float t) {
+	return Clifford((2*sinf(2*t) + 1) / 7.0f, 0) * Sin(U + t) * Sin(V * 10 + t) + (1 - (sinf(t) + 1) / 8.0f);
+}
 
 //---------------------------
 class Sphere : public ParamSurface {
@@ -467,7 +427,7 @@ class Sphere : public ParamSurface {
 public:
 	Sphere() { create(); }
 
-	VertexData GenVertexData(float u, float v) {
+	VertexData GenVertexData(float u, float v, float t_end) {
 		VertexData vd;
 		vd.position = vd.normal = vec3(cosf(u * 2.0f * (float)M_PI) * sinf(v * (float)M_PI),
 			sinf(u * 2.0f * (float)M_PI) * sinf(v * (float)M_PI),
@@ -476,92 +436,167 @@ public:
 		return vd;
 	}
 };
-
 //---------------------------
-class Torus : public ParamSurface {
-	//---------------------------
-	const float R = 1, r = 0.5;
+struct CoronaBody : public ParamSurface {
+//---------------------------
+	CoronaBody(float t = 0) { create(tessellationLevel, tessellationLevel, t); }
 
-	vec3 Point(float u, float v, float rr) {
-		float ur = u * 2.0f * (float)M_PI, vr = v * 2.0f * (float)M_PI;
-		float l = R + rr * cosf(ur);
-		return vec3(l * cosf(vr), l * sinf(vr), rr * sinf(ur));
+	void eval(Clifford& U, Clifford& V, Clifford& X, Clifford& Y, Clifford& Z, Clifford& rad) {
+		X = rad * Cos(U) * Sin(V);
+		Y = rad * Sin(U) * Sin(V);
+		Z = rad * Cos(V);
 	}
+
+	VertexData GenVertexData(float u, float v, float t_end) {
+		VertexData vtxData;
+		vtxData.texcoord = vec2(u, v);
+		Clifford X, Y, Z;
+		Clifford U(u * 2.0f * (float)M_PI, 1), V(v * (float)M_PI, 0);		
+		Clifford R = radiusFunc(U, V, t_end);
+		eval(U, V, X, Y, Z, R);
+		vtxData.position = vec3(X.f, Y.f, Z.f);
+		vec3 drdU(X.d, Y.d, Z.d);
+		U.d = 0; V.d = 1;
+		R = radiusFunc(U, V, t_end);
+		eval(U, V, X, Y, Z, R);
+		vec3 drdV(X.d, Y.d, Z.d);
+		vtxData.normal = normalize(cross(drdU, drdV));
+		return vtxData;		
+	}
+};
+class Tractricoid : public ParamSurface {
+	float height;
 public:
-	Torus() { create(); }
+	Tractricoid(float h) : height(h) { create(); }
 
-	VertexData GenVertexData(float u, float v) {
-		VertexData vd;
-		vd.position = Point(u, v, r);
-		vd.normal = (vd.position - Point(u, v, 0)) * (1.0f / r);
-		vd.texcoord = vec2(u, v);
-		return vd;
+	void eval(Clifford& U, Clifford& V, Clifford& X, Clifford& Y, Clifford& Z) {
+		X = Cos(V) / Cosh(U);
+		Y = Sin(V) / Cosh(U);
+		Z = U - Tanh(U);
 	}
-	vec3 point(float u, float v) {
-		return Point(u, v, r);
+
+	VertexData GenVertexData(float u, float v, float t_end) {
+		VertexData vtxData;
+		vtxData.texcoord = vec2(u, v);
+		Clifford X, Y, Z;
+		Clifford U(u * height, 1), V(v * 2.0f * M_PI, 0);
+		eval(U, V, X, Y, Z);
+		vtxData.position = vec3(X.f, Y.f, Z.f);
+		vec3 drdU(X.d, Y.d, Z.d);
+		U.d = 0; V.d = 1;
+		eval(U, V, X, Y, Z);
+		vec3 drdV(X.d, Y.d, Z.d);
+		vtxData.normal = normalize(cross(drdU, drdV));
+		return vtxData;
+	}
+};
+class CylinderZ : public ParamSurface {
+public:
+	CylinderZ() { create(); }
+
+	VertexData GenVertexData(float u, float v, float t_end) {
+		VertexData vtxData;
+		vtxData.texcoord = vec2(u, v);
+		Clifford X, Y, Z;
+		Clifford U(u * 2.0f * M_PI, 1), V(v * 2.0f - 1.0f, 0);
+		X = Cos(U);
+		Y = Sin(U);
+		Z = V;
+		vtxData.position = vec3(X.f, Y.f, Z.f);
+		vec3 drdU(X.d, Y.d, Z.d);
+		U.d = 0; V.d = 1;
+		X = Cos(U);
+		Y = Sin(U);
+		Z = V;
+		vec3 drdV(X.d, Y.d, Z.d);
+		vtxData.normal = normalize(cross(drdU, drdV));
+		return vtxData;
 	}
 };
 
-//---------------------------
-class Mobius : public ParamSurface {
-	//---------------------------
-	float R, w;
-public:
-	Mobius() { R = 1; w = 0.5; create(); }
-
-	VertexData GenVertexData(float u, float v) {
-		VertexData vd;
-		Clifford U(u * (float)M_PI, 1), V((v - 0.5f) * w, 0);
-		Clifford x = (Cos(U) * V + R) * Cos(U * 2);
-		Clifford y = (Cos(U) * V + R) * Sin(U * 2);
-		Clifford z = Sin(U) * V;
-		vd.position = vec3(x.f, y.f, z.f);
-		vec3 drdU(x.d, y.d, z.d);
-		vec3 drdV(cos(U.f) * cosf(2 * U.f), cosf(U.f) * sin(2 * U.f), sinf(U.f));
-		vd.normal = cross(drdU, drdV);
-		vd.texcoord = vec2(u, v);
-		return vd;
+struct Triangle {
+	vec3 v1, v2, v3, normal;
+	//vec2 texcoord = vec2(0, 0);
+	Triangle(vec3 _v1, vec3 _v2, vec3 _v3): v1(_v1), v2(_v2), v3(_v3){
+		normal = normalize(cross((v2 - v1), (v3 - v2)));
 	}
 };
 
-//---------------------------
-class Dini : public ParamSurface {
-	//---------------------------
-	Clifford a = 1.0f, b = 0.15f;
+class AntiVirusBody : public ParamSurface {
+	std::vector<Triangle> triangs;
+	std::vector<VertexData> vtxData;
+	unsigned int nVtxPerStrip, nStrips;
 public:
-	Dini() { create(); }
+	AntiVirusBody(float t = 0) { create(tessellationLevel, tessellationLevel, t); }
 
-	VertexData GenVertexData(float u, float v) {
+	std::vector<VertexData> GenVertexData(Triangle& tri) {
+		std::vector<VertexData> vds;
+		VertexData vd1, vd2, vd3;
+		vd1.position = tri.v1;
+		vd1.normal = -tri.normal;
+		vd1.texcoord = vec2(tri.v1.x, tri.v1.y);
+		vd2.position = tri.v2;
+		vd2.normal = -tri.normal;
+		vd2.texcoord = vec2(tri.v2.x, tri.v2.y);
+		vd3.position = tri.v3;
+		vd3.normal = -tri.normal;
+		vd3.texcoord = vec2(tri.v3.x, tri.v3.y);
+		vds.push_back(vd1);
+		vds.push_back(vd2);
+		vds.push_back(vd3);
+
+		return vds;
+	}
+
+	VertexData GenVertexData(float u, float v, float t_end) { 
 		VertexData vd;
-		Clifford U(u * 4 * M_PI, 1), V(0.01f + (1 - 0.01f) * v, 0);
-		Clifford X = a * Cos(U) * Sin(V);
-		Clifford Y = a * Sin(U) * Sin(V);
-		Clifford Z = a * (Cos(V) + Log(Tan(V / 2))) + b * U + 3;
-		vd.position = vec3(X.f, Y.f, Z.f);
-		vec3 drdU = vec3(X.d, Y.d, Z.d);
-
-		U.d = 0, V.d = 1;
-		X = a * Cos(U) * Sin(V);
-		Y = a * Sin(U) * Sin(V);
-		Z = a * (Cos(V) + Log(Tan(V) / 2)) + b * U + 10;
-		vec3 drdV = vec3(X.d, Y.d, Z.d);
-
-		vd.normal = cross(drdU, drdV);
-		vd.texcoord = vec2(u, v);
 		return vd;
 	}
+
+	void create(int N = tessellationLevel, int M = tessellationLevel, float t_end = 0) {
+
+		vec3 p1(1, 1, 1);
+		vec3 p2(1, -1, -1);
+		vec3 p3(-1, 1, -1);
+		vec3 p4(-1, -1, 1);
+		triangs.push_back(Triangle(p1, p2, p3));
+		triangs.push_back(Triangle(p1, p4, p2));
+		triangs.push_back(Triangle(p1, p3, p4));
+		triangs.push_back(Triangle(p3, p2, p4));
+			// vertices on the CPU
+		for (int i = 0; i < triangs.size(); i++) {
+			std::vector<VertexData> tmp = GenVertexData(triangs[i]);
+			vtxData.insert(vtxData.end(), tmp.begin(), tmp.end());
+		}
+		glBufferData(GL_ARRAY_BUFFER, vtxData.size() * sizeof(VertexData), &vtxData[0], GL_STATIC_DRAW);
+		// Enable the vertex attribute arrays
+		glEnableVertexAttribArray(0);  // attribute array 0 = POSITION
+		glEnableVertexAttribArray(1);  // attribute array 1 = NORMAL
+		glEnableVertexAttribArray(2);  // attribute array 2 = TEXCOORD0
+		// attribute array, components/attribute, component type, normalize?, stride, offset
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (void*)offsetof(VertexData, position));
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (void*)offsetof(VertexData, normal));
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(VertexData), (void*)offsetof(VertexData, texcoord));
+	}
+	void Draw() {
+		glBindVertexArray(vao);
+		glDrawArrays(GL_TRIANGLES, 0, vtxData.size());
+	}
+	
 };
 
 //---------------------------
 struct Object {
-	//---------------------------
+//---------------------------
 	Shader* shader;
 	Material* material;
 	Texture* texture;
 	Geometry* geometry;
 	vec3 scale, translation, rotationAxis;
 	float rotationAngle;
+	std::vector<Object*> children;
 public:
+	Object() {}
 	Object(Shader* _shader, Material* _material, Texture* _texture, Geometry* _geometry) :
 		scale(vec3(1, 1, 1)), translation(vec3(0, 0, 0)), rotationAxis(0, 0, 1), rotationAngle(0) {
 		shader = _shader;
@@ -574,11 +609,9 @@ public:
 		Minv = TranslateMatrix(-translation) * RotationMatrix(-rotationAngle, rotationAxis) * ScaleMatrix(vec3(1 / scale.x, 1 / scale.y, 1 / scale.z));
 	}
 
-	void Draw(RenderState state) {
-		mat4 M, Minv;
-		SetModelingTransform(M, Minv);
-		state.M = M;
-		state.Minv = Minv;
+	virtual void Draw(RenderState state) {
+		state.M = ScaleMatrix(scale) * RotationMatrix(rotationAngle, rotationAxis) * TranslateMatrix(translation);
+		state.Minv = TranslateMatrix(-translation) * RotationMatrix(-rotationAngle, rotationAxis) * ScaleMatrix(vec3(1 / scale.x, 1 / scale.y, 1 / scale.z));
 		state.MVP = state.M * state.V * state.P;
 		state.material = material;
 		state.texture = texture;
@@ -586,8 +619,131 @@ public:
 		geometry->Draw();
 	}
 
-	virtual void Animate(float tstart, float tend) { rotationAngle = 0.8f * tend; }
+	virtual void Animate(float tstart, float tend) { 
+		rotationAngle = 0.2f * tend;
+	}
 };
+struct TracObj : public Object {
+	float u, v;
+	vec3 i, j, dir, trans;
+	mat4 transform;
+	mat4 invtransform;
+
+	TracObj(Shader* _shader, Material* _material, Texture* _texture, Geometry* _geometry, float _u, float _v): Object() {
+		shader = _shader;
+		material = _material;
+		texture = _texture;
+		geometry = _geometry;
+		u = _u;
+		v = _v;
+		scale = vec3(0.17f, 0.17f, 0.1f);
+	}
+
+	void Draw(RenderState state) {
+		state.M = ScaleMatrix(scale)* transform * state.M;
+		state.Minv = state.Minv * invtransform * ScaleMatrix(vec3(1 / scale.x, 1 / scale.y, 1 / scale.z));
+		state.MVP = state.M * state.V * state.P;
+		state.material = material;
+		state.texture = texture;
+		shader->Bind(state);
+		geometry->Draw();
+	}
+
+	void calculateNormal(float u, float vn, float t_end) {
+		Clifford U(u * 2.0f * M_PI, 1), V(v * M_PI, 0);
+		Clifford R = radiusFunc(U, V, t_end);
+		Clifford X = R * Cos(U) * Sin(V);
+		Clifford Y = R * Sin(U) * Sin(V);
+		Clifford Z = R * Cos(V);
+		trans = vec3(X.f, Y.f, Z.f);
+		vec3 drdU(X.d, Y.d, Z.d);
+		U.d = 0; V.d = 1;
+		X = R * Cos(U) * Sin(V);
+		Y = R * Sin(U) * Sin(V);
+		Z = R * Cos(V);
+		vec3 drdV(X.d, Y.d, Z.d);
+		i = drdV;
+		j = drdU;
+		dir = normalize(cross(drdU, drdV));
+		trans = vec3(X.f, Y.f, Z.f) - dir/5;
+	}
+
+	void Animate(float tstart, float tend) {
+		calculateNormal(u, v, tend);
+
+		transform = mat4(i.x, i.y, i.z, 0.0f,
+						j.x, j.y, j.z, 0.0f,
+						dir.x, dir.y, dir.z, 0.0f,
+						trans.x, trans.y, trans.z, 1);
+
+		invtransform = mat4(i.x, j.x, dir.x, 0.0f,
+							i.y, j.y, dir.y, 0.0f,
+							i.z, j.z, dir.z, 0.0f,
+							-trans.x, -trans.y, -trans.z, 1);
+	}
+};
+
+
+struct CoronaVirus : public Object {	
+
+	CoronaVirus(Shader* _shader, Material* _material, Texture* _texture, Geometry* _geometry) :
+		Object(_shader, _material, _texture, _geometry) { }
+
+	void Animate(float tstart, float tend) {
+		rotationAngle = tend * 0.9f;
+		translation = vec3(cosf(tend / 1.4) * 1.5, 3*cosf(tend), -fabs(2*cosf(tend))+2);
+		//rotationAxis = vec3(sinf(4 * tend), cosf(3 * tend), cosf(tend));
+		delete geometry;
+		geometry = new CoronaBody(tend);
+	}
+
+	void populateChildren(Shader* phong, Material* mat, Texture* text, Geometry* g) {
+		
+		for (int i = 0; i < numberOfTracs + 1; i++) {
+			int num = (int)((float)numberOfTracs * (sinf((float)i / numberOfTracs * M_PI)));
+			for (int j = 0; j <= num; j++) {
+				float u = (float)j / (num + 1);
+				float v = (float)i / numberOfTracs + eps*10;
+
+				Object* trac = new TracObj(phong, mat, text, g, u, v);
+				children.push_back(trac);
+			}
+		}
+	}
+	void Draw(RenderState state) {
+		state.M = ScaleMatrix(scale) * RotationMatrix(rotationAngle, rotationAxis) * TranslateMatrix(translation);
+		state.Minv = TranslateMatrix(-translation) * RotationMatrix(-rotationAngle, rotationAxis) * ScaleMatrix(vec3(1 / scale.x, 1 / scale.y, 1 / scale.z));
+		state.MVP = state.M * state.V * state.P;
+		state.material = material;
+		state.texture = texture;
+		shader->Bind(state);
+		geometry->Draw();
+		for (Object* child : children) child->Draw(state);
+	}
+
+};
+
+struct Room : public Object {
+
+	Room(Shader* _shader, Material* _material, Texture* _texture, Geometry* _geometry) :
+		Object(_shader, _material, _texture, _geometry) {}
+
+	void Animate(float tstart, float tend) {}
+};
+
+struct AntiVirus : public Object {
+	AntiVirus(Shader* _shader, Material* _material, Texture* _texture, Geometry* _geometry) :
+		Object(_shader, _material, _texture, _geometry) { }
+
+	void Animate(float tstart, float tend) {
+		rotationAngle = tend * 1.5f;
+		translation = vec3(3*sinf(tend/2), 2*sinf(tend*2), -fabs(8 * sin(tend)));
+		rotationAxis = vec3(sinf(4*tend), cosf(3*tend), cosf(tend));
+		delete geometry;
+		geometry = new AntiVirusBody(tend);
+	}
+};
+
 
 //---------------------------
 class Scene {
@@ -599,8 +755,6 @@ public:
 	void Build() {
 		// Shaders
 		Shader* phongShader = new PhongShader();
-		Shader* gouraudShader = new GouraudShader();
-		Shader* nprShader = new NPRShader();
 
 		// Materials
 		Material* material0 = new Material;
@@ -613,65 +767,53 @@ public:
 		material1->kd = vec3(0.8f, 0.6f, 0.4f);
 		material1->ks = vec3(0.3f, 0.3f, 0.3f);
 		material1->ka = vec3(0.2f, 0.2f, 0.2f);
-		material1->shininess = 30;
+		material1->shininess = 10;
 
 		// Textures
 		Texture* texture4x8 = new CheckerBoardTexture(4, 8);
 		Texture* texture15x20 = new CheckerBoardTexture(15, 20);
+		Texture* blue10x20 = new BlueTexture(10, 20);
+		Texture* red12x16 = new RedTexture(1, 1);
+		Texture* yellow5x5 = new YellowTexture(5, 5);
+		Texture* grey1x1 = new GreyTexture(1, 1);
+		Texture* grey20x20 = new GreyTexture(20, 20);
+		Texture* purple = new PurpleTexture(1, 1);
+		Texture* red = new RedTexture(50,50);
 
 		// Geometries
 		Geometry* sphere = new Sphere();
-		Geometry* torus = new Torus();
-		Geometry* mobius = new Mobius();
+		Geometry* coronaBody = new CoronaBody();
+		Geometry* tractricoid = new Tractricoid(3.0f);
+		Geometry* cylinderZ = new CylinderZ();
+		Geometry* antiVirusBody = new AntiVirusBody();
 
 		// Create objects by setting up their vertex data on the GPU
-		Object* sphereObject1 = new Object(phongShader, material0, texture15x20, sphere);
-		sphereObject1->translation = vec3(-3, 3, 0);
-		sphereObject1->rotationAxis = vec3(0, 1, 1);
-		sphereObject1->scale = vec3(0.5f, 1.2f, 0.5f);
-		objects.push_back(sphereObject1);
+		CoronaVirus* corona = new CoronaVirus(phongShader, material0, red, coronaBody);
+		corona->translation = vec3(3, 0, 0);
+		corona->rotationAxis = vec3(1, 1, 1);
+		corona->scale = vec3(1, 1, 1);
+		corona->populateChildren(phongShader,material0, red12x16, tractricoid);
+		objects.insert(objects.end(), corona->children.begin(), corona->children.end());
+		objects.push_back(corona);
 
-		Object* torusObject1 = new Object(phongShader, material0, texture4x8, torus);
-		torusObject1->translation = vec3(0, 3, 0);
-		torusObject1->rotationAxis = vec3(1, 1, -1);
-		torusObject1->scale = vec3(0.7f, 0.7f, 0.7f);
-		objects.push_back(torusObject1);
+		Object* room1 = new Object(phongShader, material1, grey20x20, cylinderZ);
+		room1->translation = vec3(0, 0, 0);
+		room1->rotationAxis = vec3(0, 0, 1);
+		room1->scale = vec3(10, 10, 10);
+		objects.push_back(room1);
 
-		Object* mobiusObject1 = new Object(phongShader, material0, texture4x8, mobius);
-		mobiusObject1->translation = vec3(3, 3, 0);
-		mobiusObject1->rotationAxis = vec3(1, 0, 0);
-		mobiusObject1->scale = vec3(0.7f, 0.7f, 0.7f);
-		objects.push_back(mobiusObject1);
+		Object* room2 = new Room(phongShader, material1, grey1x1, sphere);
+		room2->translation = vec3(0, 0, -9.9);
+		room2->rotationAxis = vec3(0, 0, 1);
+		room2->scale = vec3(10, 10, 0.01f);
+		objects.push_back(room2);
 
-		Object* sphereObject2 = new Object(*sphereObject1);
-		sphereObject2->translation = vec3(-3, -3, 0);
-		sphereObject2->shader = nprShader;
-		objects.push_back(sphereObject2);
+		Object* anti = new AntiVirus(phongShader, material0, purple, antiVirusBody);
+		anti->translation = vec3(0, 0, 0);
+		anti->rotationAxis = vec3(1, 1, 1);
+		anti->scale = vec3(1, 1, 1);
+		objects.push_back(anti);
 
-		Object* torusObject2 = new Object(*torusObject1);
-		torusObject2->translation = vec3(0, -3, 0);
-		torusObject2->shader = nprShader;
-		objects.push_back(torusObject2);
-
-		Object* mobiusObject2 = new Object(*mobiusObject1);
-		mobiusObject2->translation = vec3(3, -3, 0);
-		mobiusObject2->shader = nprShader;
-		objects.push_back(mobiusObject2);
-
-		Object* sphereObject3 = new Object(*sphereObject1);
-		sphereObject3->translation = vec3(-3, 0, 0);
-		sphereObject3->shader = gouraudShader;
-		objects.push_back(sphereObject3);
-
-		Object* torusObject3 = new Object(*torusObject1);
-		torusObject3->translation = vec3(0, 0, 0);
-		torusObject3->shader = gouraudShader;
-		objects.push_back(torusObject3);
-
-		Object* mobiusObject3 = new Object(*mobiusObject1);
-		mobiusObject3->translation = vec3(3, 0, 0);
-		mobiusObject3->shader = gouraudShader;
-		objects.push_back(mobiusObject3);
 
 		// Camera
 		camera.wEye = vec3(0, 0, 6);
@@ -680,17 +822,17 @@ public:
 
 		// Lights
 		lights.resize(3);
-		lights[0].wLightPos = vec4(5, 5, 4, 0);	// ideal point -> directional light source
-		lights[0].La = vec3(0.1f, 0.1f, 1);
-		lights[0].Le = vec3(3, 0, 0);
-
-		lights[1].wLightPos = vec4(5, 10, 20, 0);	// ideal point -> directional light source
+		lights[0].wLightPos = vec4(0, 0, 15, 5);	// ideal point -> directional light source
+		lights[0].La = vec3(0.3f, 0.3f, 0.3f);
+		lights[0].Le = vec3(3, 3, 3);
+		
+		/*lights[1].wLightPos = vec4(5, 10, 20, 0);	// ideal point -> directional light source
 		lights[1].La = vec3(0.2f, 0.2f, 0.2f);
 		lights[1].Le = vec3(0, 3, 0);
 
 		lights[2].wLightPos = vec4(-5, 5, 5, 0);	// ideal point -> directional light source
 		lights[2].La = vec3(0.1f, 0.1f, 0.1f);
-		lights[2].Le = vec3(0, 0, 3);
+		lights[2].Le = vec3(0, 0, 3);*/
 	}
 
 	void Render() {
