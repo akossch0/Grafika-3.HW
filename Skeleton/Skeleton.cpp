@@ -45,6 +45,15 @@ const int tessellationLevel = 30;
 const int numberOfTracs = 12;
 float radiusOfVirus = 2.0f;
 const float eps = 0.001f;
+vec3 probability;
+
+float rnd() { return (float)rand() / RAND_MAX; }
+float RandomFloat(float a, float b) {
+	float random = rnd();
+	float diff = b - a;
+	float r = random * diff;
+	return a + r;
+}
 
 //---------------------------
 struct Clifford {
@@ -61,8 +70,8 @@ struct Clifford {
 };
 
 Clifford T(float t) { return Clifford(t, 1); }
-Clifford Sin(Clifford g) { return Clifford(sin(g.f), cos(g.f) * g.d); }
-Clifford Cos(Clifford g) { return Clifford(cos(g.f), -sin(g.f) * g.d); }
+Clifford Sin(Clifford g) { return Clifford(sinf(g.f), cosf(g.f) * g.d); }
+Clifford Cos(Clifford g) { return Clifford(cosf(g.f), -sinf(g.f) * g.d); }
 Clifford Tan(Clifford g) { return Sin(g) / Cos(g); }
 Clifford Log(Clifford g) { return Clifford(logf(g.f), 1 / g.f * g.d); }
 Clifford Exp(Clifford g) { return Clifford(expf(g.f), expf(g.f) * g.d); }
@@ -577,10 +586,10 @@ public:
 	}
 
 	void recVertex(std::vector<Triangle>& tris, std::vector<Triangle>& append, float time) {
-		float t_scale = fabs(sinf(3 * time)/1.7f) + 1;
-		for (int i = 0; i < tris.size(); i++) {
+		float t_scale = fabs(sinf(3.0f * time)/1.7f) + 1.0f;
+		for (unsigned int i = 0; i < tris.size(); i++) {
 			Triangle t(Halfway(tris[i]));
-			vec3 center = (t.v1 + t.v2 + t.v3) / 3;
+			vec3 center = (t.v1 + t.v2 + t.v3) / 3.0f;
 			vec3 normal = t.normal;
 			float scale = sqrtf(length(t.v2 - t.v1) * length(t.v2 - t.v1) - (length(t.v2 - t.v1) / 2) * (length(t.v2 - t.v1) / 2));
 			vec3 top = (center + normal * scale) * t_scale;
@@ -610,7 +619,7 @@ public:
 		recVertex(app1, app2, t_end);
 		triangs.insert(triangs.end(), app2.begin(), app2.end());
 
-		for (int i = 0; i < triangs.size(); i++) {
+		for (unsigned int i = 0; i < triangs.size(); i++) {
 			std::vector<VertexData> tmp = triangsToVertexData(triangs[i]);
 			vtxData.insert(vtxData.end(), tmp.begin(), tmp.end());
 		}
@@ -738,8 +747,8 @@ struct CoronaVirus : public Object {
 
 	void Animate(float tstart, float tend) {
 		rotationAngle = tend * 0.9f;
-		translation = vec3(cosf(tend / 1.4) * 1.5, 3*cosf(tend), -fabs(2*cosf(tend))+2);
-		//rotationAxis = vec3(sinf(4 * tend), cosf(3 * tend), cosf(tend));
+		translation = vec3(cosf(tend / 1.4f) * 1.5f, 3*cosf(tend), -fabs(3*cosf(tend)));
+		rotationAxis = vec3(sinf(tend), cosf(tend), cosf(tend));
 		delete geometry;
 		geometry = new CoronaBody(tend);
 	}
@@ -784,7 +793,7 @@ struct AntiVirus : public Object {
 
 	void Animate(float tstart, float tend) {
 		rotationAngle = tend * 0.5f;
-		translation = vec3(3*sinf(tend/2), 2*sinf(tend*2), -fabs(8 * sin(tend)));
+		translation = /*translation + probability;*/vec3(3*sinf(tend/2), 2*sinf(tend*2), -fabs(8 * sin(tend)));
 		rotationAxis = vec3(sinf(tend), cosf(tend), cosf(tend));
 		delete geometry;
 		geometry = new AntiVirusBody(1.0f, tend);
@@ -918,7 +927,22 @@ void onDisplay() {
 }
 
 // Key of ASCII code pressed
-void onKeyboard(unsigned char key, int pX, int pY) { }
+void onKeyboard(unsigned char key, int pX, int pY) {
+	switch (key) {
+	case 'x': probability = normalize(probability + vec3(0.1f, 0, 0));
+		break;
+	case 'y': probability = normalize(probability + vec3(0, 0.1f, 0));
+		break;
+	case 'z': probability = normalize(probability + vec3(0, 0, 0.1f));
+		break;
+	case 'X': probability = normalize(probability + vec3(-0.1f, 0, 0));
+		break;
+	case 'Y': probability = normalize(probability + vec3(0, -0.1f, 0));
+		break;
+	case 'Z': probability = normalize(probability + vec3(0, 0, -0.1f));
+		break;
+	}
+}
 
 // Key of ASCII code released
 void onKeyboardUp(unsigned char key, int pX, int pY) { }
@@ -936,10 +960,12 @@ void onIdle() {
 	const float dt = 0.1f; // dt is ”infinitesimal”
 	float tstart = tend;
 	tend = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
-
+	
+	
 	for (float t = tstart; t < tend; t += dt) {
 		float Dt = fmin(dt, tend - t);
 		scene.Animate(t, t + Dt);
+		probability = normalize(vec3(RandomFloat(-eps, eps), RandomFloat(-eps, eps), RandomFloat(-eps, eps)));
 	}
 	glutPostRedisplay();
 }
