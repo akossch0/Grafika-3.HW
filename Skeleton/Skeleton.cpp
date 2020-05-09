@@ -71,6 +71,11 @@ Clifford Sinh(Clifford g) { return Clifford(sinhf(g.f), coshf(g.f) * g.d); }
 Clifford Cosh(Clifford g) { return Clifford(coshf(g.f), sinf(g.f) * g.d); }
 Clifford Tanh(Clifford g) { return Sinh(g) / Cosh(g); }
 
+Clifford radiusFunc(Clifford U, Clifford V, float t) {
+	//return Clifford((sinf(2 * t) + 1) / 7.0f, 0) * Sin(U + t) * Sin(V * 10 + t) + (1 - (sinf(t) + 1) / 8.0f);
+	return Clifford((sinf(3 * t) + 1) / 7.0f, 0) * 0.75f * Sin(U * 4 + V * 4 + t) + (1 - (sinf(t) + 1) / 8.0f);
+}
+
 template<class T> struct Dnum {
 	float f;
 	T d;
@@ -165,9 +170,9 @@ public:
 	PurpleTexture(const int width = 0, const int height = 0) : Texture() {
 		std::vector<vec4> image(width * height);
 		//
-		const vec4 purple(0.7f, 0.3f, 0.9f, 1), blue(0, 0, 1, 1);
+		const vec4 turkis(0.3f, 0.7f, 1, 1), purple(0.6f, 0.5f, 1, 1);
 		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
-			image[y * width + x] = (x & 1) ^ (y & 1) ? purple :purple;
+			image[y * width + x] = (x%2 == 0) ? purple : purple;
 		}
 		create(width, height, image, GL_NEAREST);
 	}
@@ -184,17 +189,29 @@ public:
 		create(width, height, image, GL_NEAREST);
 	}
 };
-class RedTexture : public Texture {
+class BrownTexture : public Texture {
 public:
-	RedTexture(const int width = 0, const int height = 0) : Texture() {
+	BrownTexture(const int width = 0, const int height = 0) : Texture() {
 		std::vector<vec4> image(width * height);
-		const vec4 light_red(0.2f, 0, 0, 1), red(1, 0, 0, 1);
+		const vec4 brown(0.7f, 0.7f, 0.2f, 1), black(0.0f, 0, 0, 1);
 		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
-			image[y * width + x] = (x%2==0) ? light_red : red;
+			image[y * width + x] = (x%2==0) ? brown : black;
 		}
 		create(width, height, image, GL_NEAREST);
 	}
 };
+class RedTexture : public Texture {
+public:
+	RedTexture(const int width = 0, const int height = 0) : Texture() {
+		std::vector<vec4> image(width * height);
+		const vec4 red(0.6f, 0.0f, 0.0f, 1), white(0.4, 0, 0, 1);
+		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
+			image[y * width + x] = (x % 2 == 0) ? red : white;
+		}
+		create(width, height, image, GL_NEAREST);
+	}
+};
+
 class YellowTexture : public Texture {
 public:
 	YellowTexture(const int width = 0, const int height = 0) : Texture() {
@@ -210,9 +227,9 @@ class GreyTexture : public Texture {
 public:
 	GreyTexture(const int width = 0, const int height = 0) : Texture() {
 		std::vector<vec4> image(width * height);
-		const vec4 grey1(0.7f, 0.7f, 0.7f, 1), grey2(0.2f, 0.2f, 0.2f, 1);
+		const vec4 grey1(0.65f, 0.65f, 0.65f, 1), grey2(0.1f, 0.1f, 0.1f, 1);
 		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
-			image[y * width + x] = (x%2 ==0) ? grey1 : grey2;
+			image[y * width + x] = (x%2 ==0) ? grey2 : grey1;
 		}
 		create(width, height, image, GL_NEAREST);
 	}
@@ -417,9 +434,7 @@ public:
 	}
 };
 
-Clifford radiusFunc(Clifford U, Clifford V, float t) {
-	return Clifford((2*sinf(2*t) + 1) / 7.0f, 0) * Sin(U + t) * Sin(V * 10 + t) + (1 - (sinf(t) + 1) / 8.0f);
-}
+
 
 //---------------------------
 class Sphere : public ParamSurface {
@@ -522,24 +537,28 @@ struct Triangle {
 	}
 };
 
-class AntiVirusBody : public ParamSurface {
+
+class AntiVirusBody : public Geometry {
 	std::vector<Triangle> triangs;
 	std::vector<VertexData> vtxData;
-	unsigned int nVtxPerStrip, nStrips;
+	float height;
 public:
-	AntiVirusBody(float t = 0) { create(tessellationLevel, tessellationLevel, t); }
+	AntiVirusBody(float _height, float t = 0) { 
+		create(tessellationLevel, tessellationLevel, t);
+		height = _height;
+	}
 
-	std::vector<VertexData> GenVertexData(Triangle& tri) {
+	std::vector<VertexData> triangsToVertexData(Triangle& tri) {
 		std::vector<VertexData> vds;
 		VertexData vd1, vd2, vd3;
 		vd1.position = tri.v1;
-		vd1.normal = -tri.normal;
+		vd1.normal = tri.normal;
 		vd1.texcoord = vec2(tri.v1.x, tri.v1.y);
 		vd2.position = tri.v2;
-		vd2.normal = -tri.normal;
+		vd2.normal = tri.normal;
 		vd2.texcoord = vec2(tri.v2.x, tri.v2.y);
 		vd3.position = tri.v3;
-		vd3.normal = -tri.normal;
+		vd3.normal = tri.normal;
 		vd3.texcoord = vec2(tri.v3.x, tri.v3.y);
 		vds.push_back(vd1);
 		vds.push_back(vd2);
@@ -553,21 +572,49 @@ public:
 		return vd;
 	}
 
+	Triangle Halfway(Triangle tri) {
+		return Triangle((tri.v1 + tri.v2) / 2, (tri.v2 + tri.v3) / 2, (tri.v3 + tri.v1) / 2);
+	}
+
+	void recVertex(std::vector<Triangle>& tris, std::vector<Triangle>& append, float time) {
+		float t_scale = fabs(sinf(3 * time)/1.7f) + 1;
+		for (int i = 0; i < tris.size(); i++) {
+			Triangle t(Halfway(tris[i]));
+			vec3 center = (t.v1 + t.v2 + t.v3) / 3;
+			vec3 normal = t.normal;
+			float scale = sqrtf(length(t.v2 - t.v1) * length(t.v2 - t.v1) - (length(t.v2 - t.v1) / 2) * (length(t.v2 - t.v1) / 2));
+			vec3 top = (center + normal * scale) * t_scale;
+			
+			append.push_back(Triangle(t.v1, t.v2, top));
+			append.push_back(Triangle(top, t.v2, t.v3));
+			append.push_back(Triangle(t.v3, t.v1, top));
+		}
+		tris.insert(tris.end(), append.begin(), append.end());
+	}
+
 	void create(int N = tessellationLevel, int M = tessellationLevel, float t_end = 0) {
 
 		vec3 p1(1, 1, 1);
 		vec3 p2(1, -1, -1);
 		vec3 p3(-1, 1, -1);
 		vec3 p4(-1, -1, 1);
+
 		triangs.push_back(Triangle(p1, p2, p3));
 		triangs.push_back(Triangle(p1, p4, p2));
 		triangs.push_back(Triangle(p1, p3, p4));
 		triangs.push_back(Triangle(p3, p2, p4));
-			// vertices on the CPU
+		
+		std::vector<Triangle> app1;
+		std::vector<Triangle> app2;
+		recVertex(triangs, app1, t_end);
+		recVertex(app1, app2, t_end);
+		triangs.insert(triangs.end(), app2.begin(), app2.end());
+
 		for (int i = 0; i < triangs.size(); i++) {
-			std::vector<VertexData> tmp = GenVertexData(triangs[i]);
+			std::vector<VertexData> tmp = triangsToVertexData(triangs[i]);
 			vtxData.insert(vtxData.end(), tmp.begin(), tmp.end());
 		}
+
 		glBufferData(GL_ARRAY_BUFFER, vtxData.size() * sizeof(VertexData), &vtxData[0], GL_STATIC_DRAW);
 		// Enable the vertex attribute arrays
 		glEnableVertexAttribArray(0);  // attribute array 0 = POSITION
@@ -620,7 +667,7 @@ public:
 	}
 
 	virtual void Animate(float tstart, float tend) { 
-		rotationAngle = 0.2f * tend;
+		rotationAngle = 0.2f * sinf(tend);
 	}
 };
 struct TracObj : public Object {
@@ -636,7 +683,7 @@ struct TracObj : public Object {
 		geometry = _geometry;
 		u = _u;
 		v = _v;
-		scale = vec3(0.17f, 0.17f, 0.1f);
+		scale = vec3(0.14f, 0.14f, 0.1f);
 	}
 
 	void Draw(RenderState state) {
@@ -736,11 +783,11 @@ struct AntiVirus : public Object {
 		Object(_shader, _material, _texture, _geometry) { }
 
 	void Animate(float tstart, float tend) {
-		rotationAngle = tend * 1.5f;
+		rotationAngle = tend * 0.5f;
 		translation = vec3(3*sinf(tend/2), 2*sinf(tend*2), -fabs(8 * sin(tend)));
-		rotationAxis = vec3(sinf(4*tend), cosf(3*tend), cosf(tend));
+		rotationAxis = vec3(sinf(tend), cosf(tend), cosf(tend));
 		delete geometry;
-		geometry = new AntiVirusBody(tend);
+		geometry = new AntiVirusBody(1.0f, tend);
 	}
 };
 
@@ -769,30 +816,31 @@ public:
 		material1->ka = vec3(0.2f, 0.2f, 0.2f);
 		material1->shininess = 10;
 
+
 		// Textures
 		Texture* texture4x8 = new CheckerBoardTexture(4, 8);
 		Texture* texture15x20 = new CheckerBoardTexture(15, 20);
 		Texture* blue10x20 = new BlueTexture(10, 20);
-		Texture* red12x16 = new RedTexture(1, 1);
 		Texture* yellow5x5 = new YellowTexture(5, 5);
 		Texture* grey1x1 = new GreyTexture(1, 1);
 		Texture* grey20x20 = new GreyTexture(20, 20);
-		Texture* purple = new PurpleTexture(1, 1);
-		Texture* red = new RedTexture(50,50);
+		Texture* purple = new PurpleTexture(10, 10);
+		Texture* brown50x50 = new BrownTexture(50,50);
+		Texture* red4x4 = new RedTexture(4, 4);
 
 		// Geometries
 		Geometry* sphere = new Sphere();
 		Geometry* coronaBody = new CoronaBody();
 		Geometry* tractricoid = new Tractricoid(3.0f);
 		Geometry* cylinderZ = new CylinderZ();
-		Geometry* antiVirusBody = new AntiVirusBody();
+		Geometry* antiVirusBody = new AntiVirusBody(1.0f);
 
 		// Create objects by setting up their vertex data on the GPU
-		CoronaVirus* corona = new CoronaVirus(phongShader, material0, red, coronaBody);
+		CoronaVirus* corona = new CoronaVirus(phongShader, material0, brown50x50, coronaBody);
 		corona->translation = vec3(3, 0, 0);
 		corona->rotationAxis = vec3(1, 1, 1);
 		corona->scale = vec3(1, 1, 1);
-		corona->populateChildren(phongShader,material0, red12x16, tractricoid);
+		corona->populateChildren(phongShader,material0, red4x4, tractricoid);
 		objects.insert(objects.end(), corona->children.begin(), corona->children.end());
 		objects.push_back(corona);
 
@@ -822,15 +870,15 @@ public:
 
 		// Lights
 		lights.resize(3);
-		lights[0].wLightPos = vec4(0, 0, 15, 5);	// ideal point -> directional light source
+		lights[0].wLightPos = vec4(0, 0, 20, 5);	// ideal point -> directional light source
 		lights[0].La = vec3(0.3f, 0.3f, 0.3f);
-		lights[0].Le = vec3(3, 3, 3);
+		lights[0].Le = vec3(3.5f, 3.5f, 3.5f);
 		
-		/*lights[1].wLightPos = vec4(5, 10, 20, 0);	// ideal point -> directional light source
+		/*lights[1].wLightPos = vec4(0, 0, 20, 1);	// ideal point -> directional light source
 		lights[1].La = vec3(0.2f, 0.2f, 0.2f);
 		lights[1].Le = vec3(0, 3, 0);
 
-		lights[2].wLightPos = vec4(-5, 5, 5, 0);	// ideal point -> directional light source
+		lights[2].wLightPos = vec4(0, 0, 20, 1);	// ideal point -> directional light source
 		lights[2].La = vec3(0.1f, 0.1f, 0.1f);
 		lights[2].Le = vec3(0, 0, 3);*/
 	}
