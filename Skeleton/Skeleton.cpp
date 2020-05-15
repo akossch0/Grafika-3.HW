@@ -81,7 +81,7 @@ Clifford Cosh(Clifford g) { return Clifford(coshf(g.f), sinf(g.f) * g.d); }
 Clifford Tanh(Clifford g) { return Sinh(g) / Cosh(g); }
 
 Clifford radiusFunc(Clifford U, Clifford V, float t) {
-	return Clifford((sinf(3 * t) + 1) / 7.0f, 0) * 0.75f * Sin(U * 4 + V * 4 + t) + (1 - (sinf(t) + 1) / 8.0f);
+	return Clifford((sinf(4.f * t) + 1) / 7.0f, 0) * 0.75f * Sin(U * 4 + V * 4 + t) + (1 - (sinf(t) + 1) / 8.0f);
 }
 
 //---------------------------
@@ -699,7 +699,6 @@ struct CoronaVirus : public Object {
 			for (int j = 0; j <= num; j++) {
 				float u = (float)j / (num + 1);
 				float v = (float)i / numberOfTracs + eps*10;
-				printf("(%f;%f)\n", u, v);
 
 				Object* trac = new TracObj(phong, mat, text, g, u, v);
 				children.push_back(trac);
