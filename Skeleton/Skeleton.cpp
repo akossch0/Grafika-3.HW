@@ -30,22 +30,24 @@
 // negativ elojellel szamoljak el es ezzel parhuzamosan eljaras is indul velem szemben.
 //=============================================================================================
 
-//=============================================================================================
-// Computer Graphics Sample Program: 3D engine-let
-// Shader: Gouraud, Phong, NPR
-// Material: diffuse + Phong-Blinn
-// Texture: CPU-procedural
-// Geometry: sphere, torus, mobius
-// Camera: perspective
-// Light: point
-//=============================================================================================
 #include "framework.h"
 
 const int tessellationLevel = 30;
 const int numberOfTracs = 12;
-float radiusOfVirus = 2.0f;
 const float eps = 0.001f;
+const int recDepth = 2;
+float antiVirusRadius;
+vec3 antiVirusCenter;
+float coronaRadius;
+vec3 coronaCenter;
 vec3 probability;
+bool gameEnds = false;
+
+bool Collision() {
+	float radius = powf(antiVirusRadius + coronaRadius, 2);
+	float distance = length(antiVirusCenter - coronaCenter);
+	return distance < radius;
+}
 
 float rnd() { return (float)rand() / RAND_MAX; }
 float RandomFloat(float a, float b) {
@@ -55,9 +57,7 @@ float RandomFloat(float a, float b) {
 	return a + r;
 }
 
-//---------------------------
 struct Clifford {
-	//---------------------------
 	float f, d;
 	Clifford(float f0 = 0, float d0 = 0) { f = f0, d = d0; }
 	Clifford operator+(Clifford r) { return Clifford(f + r.f, d + r.d); }
@@ -81,36 +81,8 @@ Clifford Cosh(Clifford g) { return Clifford(coshf(g.f), sinf(g.f) * g.d); }
 Clifford Tanh(Clifford g) { return Sinh(g) / Cosh(g); }
 
 Clifford radiusFunc(Clifford U, Clifford V, float t) {
-	//return Clifford((sinf(2 * t) + 1) / 7.0f, 0) * Sin(U + t) * Sin(V * 10 + t) + (1 - (sinf(t) + 1) / 8.0f);
 	return Clifford((sinf(3 * t) + 1) / 7.0f, 0) * 0.75f * Sin(U * 4 + V * 4 + t) + (1 - (sinf(t) + 1) / 8.0f);
 }
-
-template<class T> struct Dnum {
-	float f;
-	T d;
-	Dnum(float f0 = 0, T d0 = T(0)) { f = f0, d = d0; }
-	Dnum operator+(Dnum r) { return Dnum(f + r.f, d + r.d); }
-	Dnum operator-(Dnum r) { return Dnum(f - r.f, d - r.d); }
-	Dnum operator*(Dnum r) {
-		return Dnum(f * r.f, f * r.d + d * r.f);
-	}
-	Dnum operator/(Dnum r) {
-		return Dnum(f / r.f, (r.f * d - r.d * f) / r.f / r.f);
-	}
-};
-
-template<class T> Dnum<T> Exp(Dnum<T> g) { return Dnum<T>(expf(g.f), expf(g.f) * g.d); }
-template<class T> Dnum<T> Sin(Dnum<T> g) { return Dnum<T>(sinf(g.f), cosf(g.f) * g.d); }
-template<class T> Dnum<T> Cos(Dnum<T> g) { return Dnum<T>(cosf(g.f), -sinf(g.f) * g.d); }
-template<class T> Dnum<T> Tan(Dnum<T> g) { return Sin(g) / Cos(g); }
-template<class T> Dnum<T> Sinh(Dnum<T> g) { return Dnum<T>(sinhf(g.f), coshf(g.f) * g.d); }
-template<class T> Dnum<T> Cosh(Dnum<T> g) { return Dnum<T>(coshf(g.f), sinhf(g.f) * g.d); }
-template<class T> Dnum<T> Tanh(Dnum<T> g) { return Sinh(g) / Cosh(g); }
-template<class T> Dnum<T> Log(Dnum<T> g) { return Dnum<T>(logf(g.f), g.d / g.f); }
-template<class T> Dnum<T> Pow(Dnum<T> g) {
-	return Dnum<T>(powf(g.f, n), n * powf(g.f, n - 1) * g.d);
-}
-typedef Dnum<vec2> Dnum2;
 
 //---------------------------
 struct Camera { // 3D camera
@@ -143,42 +115,23 @@ public:
 	void Animate(float t) { }
 };
 
-//---------------------------
 struct Material {
-	//---------------------------
 	vec3 kd, ks, ka;
 	float shininess;
 };
 
-//---------------------------
+
 struct Light {
-	//---------------------------
 	vec3 La, Le;
 	vec4 wLightPos;
 
 	void Animate(float t) {	}
 };
 
-//---------------------------
-class CheckerBoardTexture : public Texture {
-	//---------------------------
-public:
-	CheckerBoardTexture(const int width = 0, const int height = 0) : Texture() {
-		std::vector<vec4> image(width * height);
-		const vec4 yellow(1, 1, 0, 1), blue(0, 0, 1, 1);
-		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
-			image[y * width + x] = (x & 1) ^ (y & 1) ? yellow : blue;
-		}
-		create(width, height, image, GL_NEAREST);
-	}
-};
-
 class PurpleTexture : public Texture {
-	//---------------------------
 public:
 	PurpleTexture(const int width = 0, const int height = 0) : Texture() {
 		std::vector<vec4> image(width * height);
-		//
 		const vec4 turkis(0.3f, 0.7f, 1, 1), purple(0.6f, 0.5f, 1, 1);
 		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
 			image[y * width + x] = (x%2 == 0) ? purple : purple;
@@ -187,17 +140,6 @@ public:
 	}
 };
 
-class BlueTexture : public Texture {
-public:
-	BlueTexture(const int width = 0, const int height = 0) : Texture() {
-		std::vector<vec4> image(width * height);
-		const vec4 light_blue(0, 1, 1, 1), blue(0, 0, 1, 1);
-		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
-			image[y * width + x] = (x & 1) ^ (y & 1) ? light_blue : blue;
-		}
-		create(width, height, image, GL_NEAREST);
-	}
-};
 class BrownTexture : public Texture {
 public:
 	BrownTexture(const int width = 0, const int height = 0) : Texture() {
@@ -221,17 +163,6 @@ public:
 	}
 };
 
-class YellowTexture : public Texture {
-public:
-	YellowTexture(const int width = 0, const int height = 0) : Texture() {
-		std::vector<vec4> image(width * height);
-		const vec4 yellow(1, 1, 0, 1), green(0.5f, 1, 0, 1);
-		for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) {
-			image[y * width + x] = (x & 1) ^ (y & 1) ? yellow : green;
-		}
-		create(width, height, image, GL_NEAREST);
-	}
-};
 class GreyTexture : public Texture {
 public:
 	GreyTexture(const int width = 0, const int height = 0) : Texture() {
@@ -244,9 +175,7 @@ public:
 	}
 };
 
-//---------------------------
 struct RenderState {
-	//---------------------------
 	mat4				 MVP, M, Minv, V, P;
 	Material*			 material;
 	std::vector<Light>	lights;
@@ -254,9 +183,7 @@ struct RenderState {
 	vec3				wEye;
 };
 
-//---------------------------
 class Shader : public GPUProgram {
-	//---------------------------
 public:
 	virtual void Bind(RenderState state) = 0;
 
@@ -274,9 +201,7 @@ public:
 	}
 };
 
-//---------------------------
 class PhongShader : public Shader {
-	//---------------------------
 	const char* vertexSource = R"(
 		#version 330
 		precision highp float;
@@ -379,16 +304,12 @@ public:
 	}
 };
 
-//---------------------------
 struct VertexData {
-	//---------------------------
 	vec3 position, normal;
 	vec2 texcoord;
 };
 
-//---------------------------
 class Geometry {
-//---------------------------
 protected:
 	
 	unsigned int vao, vbo;        // vertex array object
@@ -401,15 +322,13 @@ public:
 		glBindBuffer(GL_ARRAY_BUFFER, vbo);
 	}
 	virtual void Draw() = 0;
-	~Geometry() {
+	virtual ~Geometry() {
 		glDeleteBuffers(1, &vbo);
 		glDeleteVertexArrays(1, &vao);
 	}
 };
 
-//---------------------------
 class ParamSurface : public Geometry {
-	//---------------------------
 	unsigned int nVtxPerStrip, nStrips;
 public:
 	ParamSurface() { nVtxPerStrip = nStrips = 0; }
@@ -443,11 +362,7 @@ public:
 	}
 };
 
-
-
-//---------------------------
 class Sphere : public ParamSurface {
-	//---------------------------
 public:
 	Sphere() { create(); }
 
@@ -460,9 +375,7 @@ public:
 		return vd;
 	}
 };
-//---------------------------
 struct CoronaBody : public ParamSurface {
-//---------------------------
 	CoronaBody(float t = 0) { create(tessellationLevel, tessellationLevel, t); }
 
 	void eval(Clifford& U, Clifford& V, Clifford& X, Clifford& Y, Clifford& Z, Clifford& rad) {
@@ -540,12 +453,10 @@ public:
 
 struct Triangle {
 	vec3 v1, v2, v3, normal;
-	//vec2 texcoord = vec2(0, 0);
 	Triangle(vec3 _v1, vec3 _v2, vec3 _v3): v1(_v1), v2(_v2), v3(_v3){
 		normal = normalize(cross((v2 - v1), (v3 - v2)));
 	}
 };
-
 
 class AntiVirusBody : public Geometry {
 	std::vector<Triangle> triangs;
@@ -585,8 +496,10 @@ public:
 		return Triangle((tri.v1 + tri.v2) / 2, (tri.v2 + tri.v3) / 2, (tri.v3 + tri.v1) / 2);
 	}
 
-	void recVertex(std::vector<Triangle>& tris, std::vector<Triangle>& append, float time) {
-		float t_scale = fabs(sinf(3.0f * time)/1.7f) + 1.0f;
+	void recursiveTriangulation(std::vector<Triangle>& tris, float t_scale, int depth = 0) {
+		if (depth >= recDepth) return;
+		
+		std::vector<Triangle> append;
 		for (unsigned int i = 0; i < tris.size(); i++) {
 			Triangle t(Halfway(tris[i]));
 			vec3 center = (t.v1 + t.v2 + t.v3) / 3.0f;
@@ -598,7 +511,32 @@ public:
 			append.push_back(Triangle(top, t.v2, t.v3));
 			append.push_back(Triangle(t.v3, t.v1, top));
 		}
+		recursiveTriangulation(append, t_scale, depth + 1);
 		tris.insert(tris.end(), append.begin(), append.end());
+		append.clear();
+	}
+
+	std::vector<Triangle> sideTriangles(std::vector<Triangle>& tris) {
+		std::vector<Triangle> res;
+
+		for (unsigned int i = 0; i < tris.size(); i++) {
+			Triangle t1(tris[i].v1, (tris[i].v1 + tris[i].v2) / 2, (tris[i].v1 + tris[i].v3) / 2);
+			Triangle t2(tris[i].v2, (tris[i].v3 + tris[i].v2) / 2, (tris[i].v2 + tris[i].v1) / 2);
+			Triangle t3(tris[i].v3, (tris[i].v1 + tris[i].v3) / 2, (tris[i].v2 + tris[i].v3) / 2);
+
+			Triangle array[3] = { t1,t2,t3 };
+			for (int i = 0; i < 3; i++) {
+				Triangle t(Halfway(array[i]));
+				vec3 center = (t.v1 + t.v2 + t.v3) / 3.0f;
+				vec3 normal = t.normal;
+				float scale = sqrtf(length(t.v2 - t.v1) * length(t.v2 - t.v1)- (length(t.v2 - t.v1) / 2) * (length(t.v2 - t.v1) / 2));
+				vec3 top = (center + normal * scale);
+				res.push_back(Triangle(t.v1, t.v2, top));
+				res.push_back(Triangle(top, t.v2, t.v3));
+				res.push_back(Triangle(t.v3, t.v1, top));
+			}
+		}
+		return res;
 	}
 
 	void create(int N = tessellationLevel, int M = tessellationLevel, float t_end = 0) {
@@ -608,17 +546,19 @@ public:
 		vec3 p3(-1, 1, -1);
 		vec3 p4(-1, -1, 1);
 
+		vec3 centroid = (p1 + p2 + p3 + p4) / 4;
+		antiVirusRadius = 0.15f * length((p1 - centroid));
+
 		triangs.push_back(Triangle(p1, p2, p3));
 		triangs.push_back(Triangle(p1, p4, p2));
 		triangs.push_back(Triangle(p1, p3, p4));
 		triangs.push_back(Triangle(p3, p2, p4));
-		
-		std::vector<Triangle> app1;
-		std::vector<Triangle> app2;
-		recVertex(triangs, app1, t_end);
-		recVertex(app1, app2, t_end);
-		triangs.insert(triangs.end(), app2.begin(), app2.end());
 
+		std::vector<Triangle> side = sideTriangles(triangs);
+		float t_scale = sinf(4.0f * t_end) / 4 + 1.25f;
+		recursiveTriangulation(triangs, t_scale);
+		triangs.insert(triangs.end(), side.begin(), side.end());
+		
 		for (unsigned int i = 0; i < triangs.size(); i++) {
 			std::vector<VertexData> tmp = triangsToVertexData(triangs[i]);
 			vtxData.insert(vtxData.end(), tmp.begin(), tmp.end());
@@ -638,12 +578,13 @@ public:
 		glBindVertexArray(vao);
 		glDrawArrays(GL_TRIANGLES, 0, vtxData.size());
 	}
-	
+	~AntiVirusBody() {
+		vtxData.clear();
+		triangs.clear();
+	}
 };
 
-//---------------------------
 struct Object {
-//---------------------------
 	Shader* shader;
 	Material* material;
 	Texture* texture;
@@ -659,10 +600,6 @@ public:
 		texture = _texture;
 		material = _material;
 		geometry = _geometry;
-	}
-	virtual void SetModelingTransform(mat4& M, mat4& Minv) {
-		M = ScaleMatrix(scale) * RotationMatrix(rotationAngle, rotationAxis) * TranslateMatrix(translation);
-		Minv = TranslateMatrix(-translation) * RotationMatrix(-rotationAngle, rotationAxis) * ScaleMatrix(vec3(1 / scale.x, 1 / scale.y, 1 / scale.z));
 	}
 
 	virtual void Draw(RenderState state) {
@@ -696,7 +633,7 @@ struct TracObj : public Object {
 	}
 
 	void Draw(RenderState state) {
-		state.M = ScaleMatrix(scale)* transform * state.M;
+		state.M = ScaleMatrix(scale) * transform * state.M;
 		state.Minv = state.Minv * invtransform * ScaleMatrix(vec3(1 / scale.x, 1 / scale.y, 1 / scale.z));
 		state.MVP = state.M * state.V * state.P;
 		state.material = material;
@@ -725,32 +662,34 @@ struct TracObj : public Object {
 	}
 
 	void Animate(float tstart, float tend) {
-		calculateNormal(u, v, tend);
+		if (!gameEnds) {
+			calculateNormal(u, v, tend);
 
-		transform = mat4(i.x, i.y, i.z, 0.0f,
-						j.x, j.y, j.z, 0.0f,
-						dir.x, dir.y, dir.z, 0.0f,
-						trans.x, trans.y, trans.z, 1);
+			transform = mat4(i.x, i.y, i.z, 0.0f,
+				j.x, j.y, j.z, 0.0f,
+				dir.x, dir.y, dir.z, 0.0f,
+				trans.x, trans.y, trans.z, 1);
 
-		invtransform = mat4(i.x, j.x, dir.x, 0.0f,
-							i.y, j.y, dir.y, 0.0f,
-							i.z, j.z, dir.z, 0.0f,
-							-trans.x, -trans.y, -trans.z, 1);
+			invtransform = mat4(i.x, j.x, dir.x, 0.0f,
+				i.y, j.y, dir.y, 0.0f,
+				i.z, j.z, dir.z, 0.0f,
+				-trans.x, -trans.y, -trans.z, 1);
+		}
 	}
 };
 
-
 struct CoronaVirus : public Object {	
-
 	CoronaVirus(Shader* _shader, Material* _material, Texture* _texture, Geometry* _geometry) :
 		Object(_shader, _material, _texture, _geometry) { }
 
 	void Animate(float tstart, float tend) {
-		rotationAngle = tend * 0.9f;
-		translation = vec3(cosf(tend / 1.4f) * 1.5f, 3*cosf(tend), -fabs(3*cosf(tend)));
-		rotationAxis = vec3(sinf(tend), cosf(tend), cosf(tend));
-		delete geometry;
-		geometry = new CoronaBody(tend);
+		if (!gameEnds) {
+			rotationAngle = tend * 0.9f;
+			translation = coronaCenter = vec3(cosf(tend / 1.4f) * 1.5f, 3 * cosf(tend), -fabs(3 * cosf(tend)));
+			rotationAxis = vec3(sinf(tend), cosf(tend), cosf(tend));
+			delete geometry;
+			geometry = new CoronaBody(tend);
+		}
 	}
 
 	void populateChildren(Shader* phong, Material* mat, Texture* text, Geometry* g) {
@@ -760,12 +699,14 @@ struct CoronaVirus : public Object {
 			for (int j = 0; j <= num; j++) {
 				float u = (float)j / (num + 1);
 				float v = (float)i / numberOfTracs + eps*10;
+				printf("(%f;%f)\n", u, v);
 
 				Object* trac = new TracObj(phong, mat, text, g, u, v);
 				children.push_back(trac);
 			}
 		}
 	}
+
 	void Draw(RenderState state) {
 		state.M = ScaleMatrix(scale) * RotationMatrix(rotationAngle, rotationAxis) * TranslateMatrix(translation);
 		state.Minv = TranslateMatrix(-translation) * RotationMatrix(-rotationAngle, rotationAxis) * ScaleMatrix(vec3(1 / scale.x, 1 / scale.y, 1 / scale.z));
@@ -776,11 +717,9 @@ struct CoronaVirus : public Object {
 		geometry->Draw();
 		for (Object* child : children) child->Draw(state);
 	}
-
 };
 
 struct Room : public Object {
-
 	Room(Shader* _shader, Material* _material, Texture* _texture, Geometry* _geometry) :
 		Object(_shader, _material, _texture, _geometry) {}
 
@@ -793,17 +732,16 @@ struct AntiVirus : public Object {
 
 	void Animate(float tstart, float tend) {
 		rotationAngle = tend * 0.5f;
-		translation = /*translation + probability;*/vec3(3*sinf(tend/2), 2*sinf(tend*2), -fabs(8 * sin(tend)));
-		rotationAxis = vec3(sinf(tend), cosf(tend), cosf(tend));
+		if (!gameEnds) {
+			translation = antiVirusCenter = translation + probability * vec3(0.03f, 0.03f, 0.03f); //vec3(3*sinf(tend/2), 2*sinf(tend*2), -fabs(8 * sin(tend)));
+			rotationAxis = vec3(sinf(tend), cosf(tend), cosf(tend));
+		}
 		delete geometry;
 		geometry = new AntiVirusBody(1.0f, tend);
 	}
 };
 
-
-//---------------------------
 class Scene {
-	//---------------------------
 	std::vector<Object*> objects;
 	Camera camera; // 3D camera
 	std::vector<Light> lights;
@@ -817,7 +755,7 @@ public:
 		material0->kd = vec3(0.6f, 0.4f, 0.2f);
 		material0->ks = vec3(4, 4, 4);
 		material0->ka = vec3(0.1f, 0.1f, 0.1f);
-		material0->shininess = 100;
+		material0->shininess = 50;
 
 		Material* material1 = new Material;
 		material1->kd = vec3(0.8f, 0.6f, 0.4f);
@@ -825,12 +763,7 @@ public:
 		material1->ka = vec3(0.2f, 0.2f, 0.2f);
 		material1->shininess = 10;
 
-
 		// Textures
-		Texture* texture4x8 = new CheckerBoardTexture(4, 8);
-		Texture* texture15x20 = new CheckerBoardTexture(15, 20);
-		Texture* blue10x20 = new BlueTexture(10, 20);
-		Texture* yellow5x5 = new YellowTexture(5, 5);
 		Texture* grey1x1 = new GreyTexture(1, 1);
 		Texture* grey20x20 = new GreyTexture(20, 20);
 		Texture* purple = new PurpleTexture(10, 10);
@@ -846,9 +779,10 @@ public:
 
 		// Create objects by setting up their vertex data on the GPU
 		CoronaVirus* corona = new CoronaVirus(phongShader, material0, brown50x50, coronaBody);
-		corona->translation = vec3(3, 0, 0);
+		corona->translation = coronaCenter = vec3(3, 0, 0);
 		corona->rotationAxis = vec3(1, 1, 1);
 		corona->scale = vec3(1, 1, 1);
+		coronaRadius = 1.0f;
 		corona->populateChildren(phongShader,material0, red4x4, tractricoid);
 		objects.insert(objects.end(), corona->children.begin(), corona->children.end());
 		objects.push_back(corona);
@@ -866,9 +800,9 @@ public:
 		objects.push_back(room2);
 
 		Object* anti = new AntiVirus(phongShader, material0, purple, antiVirusBody);
-		anti->translation = vec3(0, 0, 0);
+		anti->translation = antiVirusCenter = vec3(0, 0, -3);
 		anti->rotationAxis = vec3(1, 1, 1);
-		anti->scale = vec3(1, 1, 1);
+		anti->scale = vec3(0.5f, 0.5f, 0.5f);
 		objects.push_back(anti);
 
 
@@ -879,17 +813,9 @@ public:
 
 		// Lights
 		lights.resize(3);
-		lights[0].wLightPos = vec4(0, 0, 20, 5);	// ideal point -> directional light source
+		lights[0].wLightPos = vec4(0, 0, 20, 5);
 		lights[0].La = vec3(0.3f, 0.3f, 0.3f);
-		lights[0].Le = vec3(3.5f, 3.5f, 3.5f);
-		
-		/*lights[1].wLightPos = vec4(0, 0, 20, 1);	// ideal point -> directional light source
-		lights[1].La = vec3(0.2f, 0.2f, 0.2f);
-		lights[1].Le = vec3(0, 3, 0);
-
-		lights[2].wLightPos = vec4(0, 0, 20, 1);	// ideal point -> directional light source
-		lights[2].La = vec3(0.1f, 0.1f, 0.1f);
-		lights[2].Le = vec3(0, 0, 3);*/
+		lights[0].Le = vec3(3.0f, 3.0f, 3.0f);
 	}
 
 	void Render() {
@@ -966,6 +892,7 @@ void onIdle() {
 		float Dt = fmin(dt, tend - t);
 		scene.Animate(t, t + Dt);
 		probability = normalize(vec3(RandomFloat(-eps, eps), RandomFloat(-eps, eps), RandomFloat(-eps, eps)));
+		if (Collision()) gameEnds = true;
 	}
 	glutPostRedisplay();
 }
